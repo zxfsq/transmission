@@ -302,12 +302,6 @@ static void append_argument(char** arguments, char const* argument)
     *(dst++) = '\0';
 }
 
-static bool contains_batch_metachars(char const* text)
-{
-    /* First part - chars explicitly documented by `cmd.exe /?` as "special" */
-    return strpbrk(text, "&<>()@^|" "%!^\"") != NULL;
-}
-
 static enum tr_app_type get_app_type(char const* app)
 {
     if (tr_str_has_suffix(app, ".cmd") || tr_str_has_suffix(app, ".bat"))
@@ -342,34 +336,21 @@ static void append_app_launcher_arguments(enum tr_app_type app_type, char** args
     }
 }
 
-static bool construct_cmd_line(char const* const* cmd, wchar_t** cmd_line)
+static wchar_t* construct_cmd_line(char const* const* cmd)
 {
     enum tr_app_type const app_type = get_app_type(cmd[0]);
 
     char* args = NULL;
-    size_t arg_count = 0;
-    bool ret = false;
-
     append_app_launcher_arguments(app_type, &args);
 
     for (size_t i = 0; cmd[i] != NULL; ++i)
     {
-        if (app_type == TR_APP_TYPE_BATCH && i > 0 && contains_batch_metachars(cmd[i]))
-        {
-            /* FIXME: My attempts to escape them one or another way didn't lead to anything good so far */
-            goto cleanup;
-        }
-
         append_argument(&args, cmd[i]);
-        ++arg_count;
     }
 
-    *cmd_line = args != NULL ? tr_win32_utf8_to_native(args, -1) : NULL;
-
-    ret = true;
-
-cleanup:
+    wchar_t* const ret = args != NULL ? tr_win32_utf8_to_native(args, -1) : NULL;
     tr_free(args);
+
     return ret;
 }
 
@@ -382,14 +363,7 @@ bool tr_spawn_async(char* const* cmd, char* const* env, char const* work_dir, tr
         return false;
     }
 
-    wchar_t* cmd_line;
-
-    if (!construct_cmd_line(cmd, &cmd_line))
-    {
-        set_system_error(error, ERROR_INVALID_PARAMETER, "Constructing command line");
-        return false;
-    }
-
+    wchar_t* cmd_line = construct_cmd_line(cmd);
     wchar_t* current_dir = work_dir != NULL ? tr_win32_utf8_to_native(work_dir, -1) : NULL;
 
     STARTUPINFOW si =
